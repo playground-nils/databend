@@ -1,21 +1,17 @@
 name: Meta
-
-on:
+'on':
   pull_request_target:
     types:
-      - labeled
+    - labeled
     branches:
-      - main
-
+    - main
 permissions:
   id-token: write
   pull-requests: write
   contents: read
-
 env:
   BUILD_PROFILE: release
   RUNNER_PROVIDER: aws
-
 jobs:
   info:
     if: contains(github.event.pull_request.labels.*.name, 'ci-meta-chaos')
@@ -24,63 +20,55 @@ jobs:
       sha: ${{ steps.sha.outputs.sha }}
       target: ${{ steps.sha.outputs.target }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          ref: "refs/pull/${{ github.event.number }}/merge"
-      - name: Get SHA
-        shell: bash
-        id: sha
-        run: |
-          echo "sha=$(git rev-parse --verify HEAD)" > $GITHUB_OUTPUT
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        ref: refs/pull/${{ github.event.number }}/merge
+    - name: Get SHA
+      shell: bash
+      id: sha
+      run: 'echo "sha=$(git rev-parse --verify HEAD)" > $GITHUB_OUTPUT
 
+        '
   build:
     needs: info
-    runs-on:
-      - self-hosted
-      - "${{ matrix.runner }}"
-      - Linux
-      - 8c
-      - aws
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         include:
-          - { arch: x86_64, runner: X64 }
+        - arch: x86_64
+          runner: X64
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          ref: "refs/pull/${{ github.event.number }}/merge"
-      - name: Build Release
-        uses: ./.github/actions/build_linux
-        timeout-minutes: 60
-        with:
-          sha: ${{ needs.info.outputs.sha }}
-          target: ${{ matrix.arch }}-unknown-linux-gnu
-          artifacts: meta,metactl,metaverifier
-
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        ref: refs/pull/${{ github.event.number }}/merge
+    - name: Build Release
+      uses: ./.github/actions/build_linux
+      timeout-minutes: 60
+      with:
+        sha: ${{ needs.info.outputs.sha }}
+        target: ${{ matrix.arch }}-unknown-linux-gnu
+        artifacts: meta,metactl,metaverifier
   chaos:
-    needs: [info, build]
-    runs-on:
-      - self-hosted
-      - X64
-      - Linux
-      - 4c
-      - aws
+    needs:
+    - info
+    - build
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: "refs/pull/${{ github.event.number }}/merge"
-      - name: Download artifact
-        uses: ./.github/actions/artifact_download
-        with:
-          sha: ${{ needs.info.outputs.sha }}
-          target: x86_64-unknown-linux-gnu
-          artifacts: meta,metactl,metaverifier
-      - uses: ./.github/actions/io_delay_chaos
-        timeout-minutes: 20
-      - name: Upload failure artifacts
-        if: failure() || cancelled()
-        uses: ./.github/actions/artifact_meta_container_failure
-        with:
-          name: meta-io-delay-chaos
+    - uses: actions/checkout@v4
+      with:
+        ref: refs/pull/${{ github.event.number }}/merge
+    - name: Download artifact
+      uses: ./.github/actions/artifact_download
+      with:
+        sha: ${{ needs.info.outputs.sha }}
+        target: x86_64-unknown-linux-gnu
+        artifacts: meta,metactl,metaverifier
+    - uses: ./.github/actions/io_delay_chaos
+      timeout-minutes: 20
+    - name: Upload failure artifacts
+      if: failure() || cancelled()
+      uses: ./.github/actions/artifact_meta_container_failure
+      with:
+        name: meta-io-delay-chaos
