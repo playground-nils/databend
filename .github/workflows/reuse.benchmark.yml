@@ -1,6 +1,5 @@
 name: Benchmark
-
-on:
+'on':
   workflow_call:
     inputs:
       sha:
@@ -24,290 +23,304 @@ on:
         required: true
         type: string
       target:
-        description: "The target of benchmark, local or cloud or all"
+        description: The target of benchmark, local or cloud or all
         type: string
         required: true
-
 permissions:
   id-token: write
   pull-requests: write
   contents: read
-
 env:
   BUILD_PROFILE: release
   RUNNER_PROVIDER: github
-
 jobs:
   local:
     timeout-minutes: 60
-    runs-on:
-      - self-hosted
-      - X64
-      - Linux
-      - 8c
-      - aws
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         dataset:
-          - internal
-          # - hits
+        - internal
       fail-fast: true
       max-parallel: 1
     env:
       RUNNER_PROVIDER: aws
     steps:
-      - uses: actions/checkout@v4
-        if: inputs.source == 'release'
-        with:
-          ref: ${{ inputs.sha }}
-      - uses: actions/checkout@v4
-        if: inputs.source == 'pr'
-        with:
-          ref: "refs/pull/${{ inputs.source_id }}/merge"
-      - uses: ./.github/actions/setup_bendsql
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Download artifact
-        uses: ./.github/actions/artifact_download
-        with:
-          sha: ${{ inputs.sha }}
-          target: x86_64-unknown-linux-gnu
-          category: docker
-          artifacts: meta,query
-      - name: Setup Databend Binary
-        shell: bash
-        run: |
-          sudo cp ./target/release/databend-* /usr/local/bin/
-          databend-query --version
-          databend-meta --version
-      - uses: ./.github/actions/benchmark_local
-        if: inputs.target == 'local' || inputs.target == 'all'
-        timeout-minutes: 30
-        id: benchmark
-        with:
-          sha: ${{ inputs.sha }}
-          run_id: ${{ inputs.run_id }}
-          dataset: ${{ matrix.dataset }}
-          source: ${{ inputs.source }}
-          source_id: ${{ inputs.source_id }}
+    - uses: actions/checkout@v4
+      if: inputs.source == 'release'
+      with:
+        ref: ${{ inputs.sha }}
+    - uses: actions/checkout@v4
+      if: inputs.source == 'pr'
+      with:
+        ref: refs/pull/${{ inputs.source_id }}/merge
+    - uses: ./.github/actions/setup_bendsql
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Download artifact
+      uses: ./.github/actions/artifact_download
+      with:
+        sha: ${{ inputs.sha }}
+        target: x86_64-unknown-linux-gnu
+        category: docker
+        artifacts: meta,query
+    - name: Setup Databend Binary
+      shell: bash
+      run: 'sudo cp ./target/release/databend-* /usr/local/bin/
 
+        databend-query --version
+
+        databend-meta --version
+
+        '
+    - uses: ./.github/actions/benchmark_local
+      if: inputs.target == 'local' || inputs.target == 'all'
+      timeout-minutes: 30
+      id: benchmark
+      with:
+        sha: ${{ inputs.sha }}
+        run_id: ${{ inputs.run_id }}
+        dataset: ${{ matrix.dataset }}
+        source: ${{ inputs.source }}
+        source_id: ${{ inputs.source_id }}
   load:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        if: inputs.source == 'release'
-        with:
-          ref: ${{ inputs.sha }}
-      - uses: actions/checkout@v4
-        if: inputs.source == 'pr'
-        with:
-          ref: "refs/pull/${{ inputs.source_id }}/merge"
-      - uses: ./.github/actions/setup_bendsql
-      - uses: ./.github/actions/benchmark_cloud
-        if: inputs.target == 'load' || inputs.target == 'all'
-        timeout-minutes: 90
-        id: benchmark
-        with:
-          sha: ${{ inputs.sha }}
-          run_id: ${{ inputs.run_id }}
-          dataset: load
-          source: ${{ inputs.source }}
-          source_id: ${{ inputs.source_id }}
-          size: Small
-          cache_size: "0"
-          tries: 1
-          version: ${{ inputs.version }}
-          cloud_user: ${{ secrets.BENCHMARK_CLOUD_USER }}
-          cloud_password: ${{ secrets.BENCHMARK_CLOUD_PASSWORD }}
-          cloud_gateway: ${{ secrets.BENCHMARK_CLOUD_GATEWAY }}
-          database: load
-      - name: clean
-        if: always()
-        continue-on-error: true
-        env:
-          BENDSQL_DSN: "databend://${{ secrets.BENCHMARK_CLOUD_USER }}:${{ secrets.BENCHMARK_CLOUD_PASSWORD }}@${{ secrets.BENCHMARK_CLOUD_GATEWAY }}:443/?warehouse=default"
-        run: |
-          echo "DROP DATABASE IF EXISTS load_test_${{ inputs.run_id }};" | bendsql -o table
-          echo "DROP WAREHOUSE IF EXISTS 'benchmark-${{ inputs.run_id }}';" | bendsql -o table
-          echo 'VACUUM TEMPORARY FILES;' | bendsql -o table
-          echo 'VACUUM DROP TABLE;' | bendsql -o table
+    - uses: actions/checkout@v4
+      if: inputs.source == 'release'
+      with:
+        ref: ${{ inputs.sha }}
+    - uses: actions/checkout@v4
+      if: inputs.source == 'pr'
+      with:
+        ref: refs/pull/${{ inputs.source_id }}/merge
+    - uses: ./.github/actions/setup_bendsql
+    - uses: ./.github/actions/benchmark_cloud
+      if: inputs.target == 'load' || inputs.target == 'all'
+      timeout-minutes: 90
+      id: benchmark
+      with:
+        sha: ${{ inputs.sha }}
+        run_id: ${{ inputs.run_id }}
+        dataset: load
+        source: ${{ inputs.source }}
+        source_id: ${{ inputs.source_id }}
+        size: Small
+        cache_size: '0'
+        tries: 1
+        version: ${{ inputs.version }}
+        cloud_user: ${{ secrets.BENCHMARK_CLOUD_USER }}
+        cloud_password: ${{ secrets.BENCHMARK_CLOUD_PASSWORD }}
+        cloud_gateway: ${{ secrets.BENCHMARK_CLOUD_GATEWAY }}
+        database: load
+    - name: clean
+      if: always()
+      continue-on-error: true
+      env:
+        BENDSQL_DSN: databend://${{ secrets.BENCHMARK_CLOUD_USER }}:${{ secrets.BENCHMARK_CLOUD_PASSWORD
+          }}@${{ secrets.BENCHMARK_CLOUD_GATEWAY }}:443/?warehouse=default
+      run: 'echo "DROP DATABASE IF EXISTS load_test_${{ inputs.run_id }};" | bendsql
+        -o table
 
+        echo "DROP WAREHOUSE IF EXISTS ''benchmark-${{ inputs.run_id }}'';" | bendsql
+        -o table
+
+        echo ''VACUUM TEMPORARY FILES;'' | bendsql -o table
+
+        echo ''VACUUM DROP TABLE;'' | bendsql -o table
+
+        '
   cloud:
     runs-on: ubuntu-latest
     needs: load
     strategy:
       matrix:
         include:
-          - { dataset: hits, size: Small, database: hits, timeout: 10, cache_size: 0, tries: 3 }
-          - { dataset: hits, size: Large, database: hits, timeout: 10, cache_size: 0, tries: 3 }
-          - { dataset: tpch100, size: Small, database: tpch_100, timeout: 20, cache_size: 0, tries: 3 }
-          - { dataset: tpch100, size: Large, database: tpch_100, timeout: 20, cache_size: 0, tries: 3 }
-          - { dataset: tpch1000, size: Large, database: tpch_1000, timeout: 60, cache_size: 0, tries: 1 }
-          - { dataset: tpch1000, size: Large, database: tpch_1000, timeout: 60, cache_size: 300, tries: 1 }
+        - dataset: hits
+          size: Small
+          database: hits
+          timeout: 10
+          cache_size: 0
+          tries: 3
+        - dataset: hits
+          size: Large
+          database: hits
+          timeout: 10
+          cache_size: 0
+          tries: 3
+        - dataset: tpch100
+          size: Small
+          database: tpch_100
+          timeout: 20
+          cache_size: 0
+          tries: 3
+        - dataset: tpch100
+          size: Large
+          database: tpch_100
+          timeout: 20
+          cache_size: 0
+          tries: 3
+        - dataset: tpch1000
+          size: Large
+          database: tpch_1000
+          timeout: 60
+          cache_size: 0
+          tries: 1
+        - dataset: tpch1000
+          size: Large
+          database: tpch_1000
+          timeout: 60
+          cache_size: 300
+          tries: 1
       fail-fast: true
       max-parallel: 1
     steps:
-      - uses: actions/checkout@v4
-        if: inputs.source == 'release'
-        with:
-          ref: ${{ inputs.sha }}
-      - uses: actions/checkout@v4
-        if: inputs.source == 'pr'
-        with:
-          ref: "refs/pull/${{ inputs.source_id }}/merge"
-      - uses: ./.github/actions/setup_bendsql
-      - uses: ./.github/actions/benchmark_cloud
-        if: inputs.target == 'cloud' || inputs.target == 'all'
-        timeout-minutes: ${{ matrix.timeout }}
-        id: benchmark
-        with:
-          sha: ${{ inputs.sha }}
-          run_id: ${{ inputs.run_id }}
-          dataset: ${{ matrix.dataset }}
-          source: ${{ inputs.source }}
-          source_id: ${{ inputs.source_id }}
-          size: ${{ matrix.size }}
-          cache_size: ${{ matrix.cache_size }}
-          tries: ${{ matrix.tries }}
-          version: ${{ inputs.version }}
-          cloud_user: ${{ secrets.BENCHMARK_CLOUD_USER }}
-          cloud_password: ${{ secrets.BENCHMARK_CLOUD_PASSWORD }}
-          cloud_gateway: ${{ secrets.BENCHMARK_CLOUD_GATEWAY }}
-          database: ${{ matrix.database }}
-      - name: clean
-        if: always()
-        continue-on-error: true
-        env:
-          BENDSQL_DSN: "databend://${{ secrets.BENCHMARK_CLOUD_USER }}:${{ secrets.BENCHMARK_CLOUD_PASSWORD }}@${{ secrets.BENCHMARK_CLOUD_GATEWAY }}:443/?warehouse=default"
-        run: |
-          echo "DROP WAREHOUSE IF EXISTS 'benchmark-${{ inputs.run_id }}';" | bendsql -o table
+    - uses: actions/checkout@v4
+      if: inputs.source == 'release'
+      with:
+        ref: ${{ inputs.sha }}
+    - uses: actions/checkout@v4
+      if: inputs.source == 'pr'
+      with:
+        ref: refs/pull/${{ inputs.source_id }}/merge
+    - uses: ./.github/actions/setup_bendsql
+    - uses: ./.github/actions/benchmark_cloud
+      if: inputs.target == 'cloud' || inputs.target == 'all'
+      timeout-minutes: ${{ matrix.timeout }}
+      id: benchmark
+      with:
+        sha: ${{ inputs.sha }}
+        run_id: ${{ inputs.run_id }}
+        dataset: ${{ matrix.dataset }}
+        source: ${{ inputs.source }}
+        source_id: ${{ inputs.source_id }}
+        size: ${{ matrix.size }}
+        cache_size: ${{ matrix.cache_size }}
+        tries: ${{ matrix.tries }}
+        version: ${{ inputs.version }}
+        cloud_user: ${{ secrets.BENCHMARK_CLOUD_USER }}
+        cloud_password: ${{ secrets.BENCHMARK_CLOUD_PASSWORD }}
+        cloud_gateway: ${{ secrets.BENCHMARK_CLOUD_GATEWAY }}
+        database: ${{ matrix.database }}
+    - name: clean
+      if: always()
+      continue-on-error: true
+      env:
+        BENDSQL_DSN: databend://${{ secrets.BENCHMARK_CLOUD_USER }}:${{ secrets.BENCHMARK_CLOUD_PASSWORD
+          }}@${{ secrets.BENCHMARK_CLOUD_GATEWAY }}:443/?warehouse=default
+      run: 'echo "DROP WAREHOUSE IF EXISTS ''benchmark-${{ inputs.run_id }}'';" |
+        bendsql -o table
 
+        '
   comment:
-    needs: [cloud, local]
+    needs:
+    - cloud
+    - local
     if: inputs.source == 'pr'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-      - uses: actions/download-artifact@v4
-        with:
-          path: benchmark/results
-          pattern: benchmark-*
-          merge-multiple: true
-      - name: Get Report Prefix
-        working-directory: benchmark
-        run: |
-          shopt -s nullglob
-          for result in results/*.json; do
-            dataset=$(echo $result | sed -E 's/.*result-(\w+)-.*\.json/\1/')
-            mkdir -p results/${dataset}/
-            mv $result results/${dataset}/$(basename $result)
-          done
-          for ndjson in results/*.ndjson; do
-            dataset=$(echo $ndjson | sed -E 's/.*result-(\w+)-.*\.ndjson/\1/')
-            mkdir -p results/${dataset}/
-            mv $ndjson results/${dataset}/$(basename $ndjson)
-          done
-          echo "REPORT_S3_PREFIX=s3://benchmark/clickbench/pr/${{ inputs.source_id }}/${{ inputs.run_id }}" >> $GITHUB_ENV
-      - name: Upload PR clickbench result to R2
-        id: result
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: auto
-          AWS_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
-        working-directory: benchmark
-        run: |
-          echo -e "## ClickBench Report\n" > /tmp/body
-          shopt -s nullglob
-          uv sync
-          for p in results/*; do
-            [ -d "$p" ] || continue
-            dataset=$(basename $p)
-            aws s3 sync results/$dataset/ ${REPORT_S3_PREFIX}/ --include "*.json" --no-progress --checksum-algorithm=CRC32
-            aws s3 sync "s3://benchmark/clickbench/release/${dataset}/latest/" ./results/${dataset}/ --exclude "*" --include "*.json" || true
-            uv run update_results.py --dataset $dataset --pr ${{ inputs.source_id }}
-            aws s3 cp ./results/${dataset}.html ${REPORT_S3_PREFIX}/${dataset}.html --no-progress --checksum-algorithm=CRC32
-            echo "* **${dataset}**: https://benchmark.databend.com/clickbench/pr/${{ inputs.source_id }}/${{ inputs.run_id }}/${dataset}.html" >> /tmp/body
-          done
-      - name: Comment on PR
-        uses: everpcpc/comment-on-pr-action@v1
-        with:
-          token: ${{ github.token }}
-          files: /tmp/body
-          number: ${{ inputs.source_id }}
-
+    - uses: actions/checkout@v4
+    - uses: astral-sh/setup-uv@v5
+    - uses: actions/download-artifact@v4
+      with:
+        path: benchmark/results
+        pattern: benchmark-*
+        merge-multiple: true
+    - name: Get Report Prefix
+      working-directory: benchmark
+      run: "shopt -s nullglob\nfor result in results/*.json; do\n  dataset=$(echo\
+        \ $result | sed -E 's/.*result-(\\w+)-.*\\.json/\\1/')\n  mkdir -p results/${dataset}/\n\
+        \  mv $result results/${dataset}/$(basename $result)\ndone\nfor ndjson in\
+        \ results/*.ndjson; do\n  dataset=$(echo $ndjson | sed -E 's/.*result-(\\\
+        w+)-.*\\.ndjson/\\1/')\n  mkdir -p results/${dataset}/\n  mv $ndjson results/${dataset}/$(basename\
+        \ $ndjson)\ndone\necho \"REPORT_S3_PREFIX=s3://benchmark/clickbench/pr/${{\
+        \ inputs.source_id }}/${{ inputs.run_id }}\" >> $GITHUB_ENV\n"
+    - name: Upload PR clickbench result to R2
+      id: result
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        AWS_DEFAULT_REGION: auto
+        AWS_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+      working-directory: benchmark
+      run: "echo -e \"## ClickBench Report\\n\" > /tmp/body\nshopt -s nullglob\nuv\
+        \ sync\nfor p in results/*; do\n  [ -d \"$p\" ] || continue\n  dataset=$(basename\
+        \ $p)\n  aws s3 sync results/$dataset/ ${REPORT_S3_PREFIX}/ --include \"*.json\"\
+        \ --no-progress --checksum-algorithm=CRC32\n  aws s3 sync \"s3://benchmark/clickbench/release/${dataset}/latest/\"\
+        \ ./results/${dataset}/ --exclude \"*\" --include \"*.json\" || true\n  uv\
+        \ run update_results.py --dataset $dataset --pr ${{ inputs.source_id }}\n\
+        \  aws s3 cp ./results/${dataset}.html ${REPORT_S3_PREFIX}/${dataset}.html\
+        \ --no-progress --checksum-algorithm=CRC32\n  echo \"* **${dataset}**: https://benchmark.databend.com/clickbench/pr/${{\
+        \ inputs.source_id }}/${{ inputs.run_id }}/${dataset}.html\" >> /tmp/body\n\
+        done\n"
+    - name: Comment on PR
+      uses: everpcpc/comment-on-pr-action@v1
+      with:
+        token: ${{ github.token }}
+        files: /tmp/body
+        number: ${{ inputs.source_id }}
   archive:
-    needs: [cloud, local]
+    needs:
+    - cloud
+    - local
     if: inputs.source == 'release'
     runs-on: ubuntu-latest
     strategy:
       matrix:
         dataset:
-          - "load"
-          - "hits"
-          - "tpch100"
-          - "tpch1000"
-          - "internal"
+        - load
+        - hits
+        - tpch100
+        - tpch1000
+        - internal
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-      - uses: actions/download-artifact@v4
-        with:
-          path: benchmark/results
-          pattern: benchmark-${{ matrix.dataset }}-*
-          merge-multiple: true
-      - name: Prepare results directory
-        working-directory: benchmark
-        run: |
-          shopt -s nullglob
-          uv sync
-          for result in results/*.json; do
-            dataset=$(echo $result | sed -E 's/.*result-(\w+)-.*\.json/\1/')
-            mkdir -p results/${dataset}/
-            mv $result results/${dataset}/$(basename $result)
-          done
-          mkdir -p ndjsons/
-          for ndjson in results/*.ndjson; do
-            dataset=$(echo $ndjson | sed -E 's/.*result-(\w+)-.*\.ndjson/\1/')
-            mkdir -p ndjsons/${dataset}/
-            mv $ndjson ndjsons/${dataset}/$(basename $ndjson)
-          done
-      - name: Generate report and upload to R2
-        working-directory: benchmark
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: auto
-          AWS_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
-        run: |
-          aws s3 sync s3://benchmark/clickbench/release/${{ matrix.dataset }}/$(date --date='-1 month' -u +%Y)/$(date --date='-1 month' -u +%m)/ ./results/${{ matrix.dataset }}/
-          aws s3 sync s3://benchmark/clickbench/release/${{ matrix.dataset }}/$(date -u +%Y)/$(date -u +%m)/ ./results/${{ matrix.dataset }}/
-          uv run update_results.py --dataset ${{ matrix.dataset }} --release ${{ inputs.source_id }}
-
-          RESULT_PREFIX="s3://benchmark/clickbench/release/${{ matrix.dataset }}/$(date -u +%Y)/$(date -u +%m)/$(date -u +%Y-%m-%d)/${{ inputs.source_id }}"
-          LATEST_PREFIX="s3://benchmark/clickbench/release/${{ matrix.dataset }}/latest/latest"
-          for file in ./results/${{ matrix.dataset }}/*.json; do
-            aws s3 cp $file "${RESULT_PREFIX}-$(basename $file)" --no-progress --checksum-algorithm=CRC32
-            aws s3 cp $file "${LATEST_PREFIX}-$(basename $file)" --no-progress --checksum-algorithm=CRC32
-          done
-
-          aws s3 cp ./results/${{ matrix.dataset }}.html s3://benchmark/clickbench/release/${{ matrix.dataset }}.html --no-progress --checksum-algorithm=CRC32
-      - name: Upload NDJSON archives to R2
-        working-directory: benchmark
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: auto
-          AWS_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
-          DATASET: ${{ matrix.dataset }}
-        run: |
-          shopt -s nullglob
-          MONTH=$(date -u +%Y-%m)
-          ARCHIVE_PREFIX="s3://benchmark/results/${DATASET}/${MONTH}/"
-          IMPORT_PREFIX="s3://benchmark/results/import/"
-          for file in ./ndjsons/${DATASET}/*.ndjson; do
-            aws s3 cp $file "${ARCHIVE_PREFIX}$(basename $file)" --no-progress --checksum-algorithm=CRC32
-            aws s3 cp $file "${IMPORT_PREFIX}$(basename $file)" --no-progress --checksum-algorithm=CRC32
-          done
+    - uses: actions/checkout@v4
+    - uses: astral-sh/setup-uv@v5
+    - uses: actions/download-artifact@v4
+      with:
+        path: benchmark/results
+        pattern: benchmark-${{ matrix.dataset }}-*
+        merge-multiple: true
+    - name: Prepare results directory
+      working-directory: benchmark
+      run: "shopt -s nullglob\nuv sync\nfor result in results/*.json; do\n  dataset=$(echo\
+        \ $result | sed -E 's/.*result-(\\w+)-.*\\.json/\\1/')\n  mkdir -p results/${dataset}/\n\
+        \  mv $result results/${dataset}/$(basename $result)\ndone\nmkdir -p ndjsons/\n\
+        for ndjson in results/*.ndjson; do\n  dataset=$(echo $ndjson | sed -E 's/.*result-(\\\
+        w+)-.*\\.ndjson/\\1/')\n  mkdir -p ndjsons/${dataset}/\n  mv $ndjson ndjsons/${dataset}/$(basename\
+        \ $ndjson)\ndone\n"
+    - name: Generate report and upload to R2
+      working-directory: benchmark
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        AWS_DEFAULT_REGION: auto
+        AWS_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+      run: "aws s3 sync s3://benchmark/clickbench/release/${{ matrix.dataset }}/$(date\
+        \ --date='-1 month' -u +%Y)/$(date --date='-1 month' -u +%m)/ ./results/${{\
+        \ matrix.dataset }}/\naws s3 sync s3://benchmark/clickbench/release/${{ matrix.dataset\
+        \ }}/$(date -u +%Y)/$(date -u +%m)/ ./results/${{ matrix.dataset }}/\nuv run\
+        \ update_results.py --dataset ${{ matrix.dataset }} --release ${{ inputs.source_id\
+        \ }}\n\nRESULT_PREFIX=\"s3://benchmark/clickbench/release/${{ matrix.dataset\
+        \ }}/$(date -u +%Y)/$(date -u +%m)/$(date -u +%Y-%m-%d)/${{ inputs.source_id\
+        \ }}\"\nLATEST_PREFIX=\"s3://benchmark/clickbench/release/${{ matrix.dataset\
+        \ }}/latest/latest\"\nfor file in ./results/${{ matrix.dataset }}/*.json;\
+        \ do\n  aws s3 cp $file \"${RESULT_PREFIX}-$(basename $file)\" --no-progress\
+        \ --checksum-algorithm=CRC32\n  aws s3 cp $file \"${LATEST_PREFIX}-$(basename\
+        \ $file)\" --no-progress --checksum-algorithm=CRC32\ndone\n\naws s3 cp ./results/${{\
+        \ matrix.dataset }}.html s3://benchmark/clickbench/release/${{ matrix.dataset\
+        \ }}.html --no-progress --checksum-algorithm=CRC32\n"
+    - name: Upload NDJSON archives to R2
+      working-directory: benchmark
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        AWS_DEFAULT_REGION: auto
+        AWS_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+        DATASET: ${{ matrix.dataset }}
+      run: "shopt -s nullglob\nMONTH=$(date -u +%Y-%m)\nARCHIVE_PREFIX=\"s3://benchmark/results/${DATASET}/${MONTH}/\"\
+        \nIMPORT_PREFIX=\"s3://benchmark/results/import/\"\nfor file in ./ndjsons/${DATASET}/*.ndjson;\
+        \ do\n  aws s3 cp $file \"${ARCHIVE_PREFIX}$(basename $file)\" --no-progress\
+        \ --checksum-algorithm=CRC32\n  aws s3 cp $file \"${IMPORT_PREFIX}$(basename\
+        \ $file)\" --no-progress --checksum-algorithm=CRC32\ndone\n"
